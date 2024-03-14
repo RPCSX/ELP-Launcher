@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<group>
+    <window title="Settings" id="settings">
+        <hgroup title="CPU">
+            <group width="300">
+                <group title="PPU Decoder" id="ppu_decoder">
+                    <radio text="Interpreter (static)" />
+                    <radio text="Recompiler (LLVM)" default="true" />
+                </group>
+                <group title="SPU Decoder" id="spu_decoder" required="true">
+                    <radio text="Interpreter (static)" />
+                    <radio text="Interpreter (dynamic)" default="true" />
+                    <radio text="Recompiler (ASMJIT)" />
+                    <radio text="Recompiler (LLVM)" />
+                </group>
+            </group>
+            <group title="Additional settings">
+                <check text="Enable SPU loop detection" id="spu_loop_detection" default="true"/>
+            </group>
+            <group width="300" id="ext_settings">
+                <group title="TSX Instructions" id="tsx_instructions">
+                    <radio text="Unsupported"/>
+                </group>
+                <group title="GPU" id="gpu">
+                    <radio required="true">
+                        ${queryGpuDevices}
+                    </radio>
+                </group>
+                <group title="Pad 1" id="pad-1" type="hid/ds">
+                    <radio>
+                        ${queryPadDevices}
+                    </radio>
+                </group>
+            </group>
+        </group>
+    </window>
+</group>

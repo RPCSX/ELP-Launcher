@@ -1,0 +1,27 @@
+{
+    "name": "DemoRepository",
+    "description": "Demo repository",
+    "version": "@VERSION@",
+    "version-tag": "@VERSION_TAG@",
+    "tag": "@GIT_REV@",
+    "branch": "@GIT_BRANCH@",
+    "license": "GPLv2",
+    "icon": "demo.svg",
+    "contributes": {
+        "packages": [
+            {
+                "name": "demo-application-download",
+                "description": "Demo application",
+                "version": "@VERSION@",
+                "version-tag": "@VERSION_TAG@",
+                "tag": "@GIT_REV@",
+                "branch": "@GIT_BRANCH@",
+                "license": "GPLv2",
+                "icon": "demo-application.svg",
+                "install": {
+                    "path": "../demo-emulator"
+                }
+            }
+        ]
+    }
+}

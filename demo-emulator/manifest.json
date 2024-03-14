@@ -1,0 +1,98 @@
+{
+    "name": "demo",
+    "description": "Demo application",
+    "version": "@VERSION@",
+    "version-tag": "@VERSION_TAG@",
+    "tag": "@GIT_REV@",
+    "branch": "@GIT_BRANCH@",
+    "license": "GPLv2",
+    "icon": "demo.svg",
+    "launch": {
+        "executable": "demo",
+        "args": [
+            "--elp"
+        ],
+        "protocol": "ELP",
+        "transport": "stdio",
+        "interpreter": "linux"
+    },
+    "ui": "ui.xml",
+    "capabilities": [],
+    "contributes": {
+        "device-groups": [
+            {
+                "name": "ps4",
+                "title": "PlayStation 4"
+            },
+            {
+                "name": "ps4-pro",
+                "title": "PlayStation 4 Pro"
+            }
+        ],
+        "alternatives": [
+            "ps4",
+            "ps4-pro"
+        ],
+        "packages-sources": []
+    },
+    "dependencies": {
+        "alternatives": [
+            "device/hid"
+        ],
+        "methods": [
+            "view/show"
+        ]
+    },
+    "commands": [
+        {
+            "id": "queryPadDevices",
+            "result": {
+                "type": "pad:ps"
+            }
+        },
+        {
+            "id": "queryGpuDevices",
+            "result": {
+                "type": "object"
+            }
+        },
+        {
+            "id": "saveState",
+            "args": [
+                {
+                    "type": "int",
+                    "min": 0,
+                    "max": 9,
+                    "name": "slot"
+                }
+            ]
+        },
+        {
+            "id": "loadState",
+            "args": [
+                {
+                    "type": "int",
+                    "min": 0,
+                    "max": 9,
+                    "name": "slot"
+                }
+            ]
+        },
+        {
+            "id": "quickSaveState",
+            "title": "Quick Save",
+            "binding": "F5"
+        },
+        {
+            "id": "quickLoadState",
+            "title": "Quick Load",
+            "binding": "F9"
+        },
+        {
+            "id": "crashPlease",
+            "title": "Trigger Crash",
+            "binding": "Ctrl+F2"
+        }
+    ],
+    "packages": []
+}
