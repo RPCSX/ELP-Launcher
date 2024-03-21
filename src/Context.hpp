@@ -79,7 +79,7 @@ struct Context : AlternativeStorage {
     auto impl = [this, responseHandler = std::move(responseHandler)](
                     const MethodCallResult &result) mutable {
       if (result.contains("error")) {
-        if (auto ec = showView("show-error", result["error"])) {
+        if (auto ec = showView("error", result["error"])) {
           std::printf("show error failed: %s, args: %s\n", ec.message().c_str(),
                       result["error"].dump().c_str());
         }

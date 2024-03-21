@@ -762,7 +762,7 @@ struct MainWidget final : BuiltinViewAlternative {
 
 struct ShowErrorDialog final : BuiltinViewAlternative {
   ShowErrorDialog(Context &context)
-      : BuiltinViewAlternative("show-error", "Error Dialog") {}
+      : BuiltinViewAlternative("error", "Error Dialog") {}
 
   std::error_code activate(Context &context, std::string_view role,
                            MethodCallArgs args, MethodCallResult *) override {
@@ -887,7 +887,7 @@ int main(int argc, char *argv[]) {
 
   context.addAlternativeGroup("view/main", "Main widget");
   context.addAlternativeGroup("view/devices", "Devices widget");
-  context.addAlternativeGroup("view/show-error", "Show error widget");
+  context.addAlternativeGroup("view/error", "Show error widget");
   context.addAlternativeGroup("view/alternative-resolver", "Packages widget");
   context.addAlternativeGroup("view/packages", "Alternative downloader widget");
   context.addAlternativeGroup("view/package-sources",
