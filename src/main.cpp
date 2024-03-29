@@ -191,7 +191,6 @@ static void showAlternativeResolverDialog(
 
   auto dialog = new QDialog(nullptr);
   dialog->setAttribute(Qt::WA_DeleteOnClose);
-  dialog->setWindowTitle(QString::fromStdString("Select alternative"));
   dialog->setLayout(new QVBoxLayout(dialog));
   dialog->layout()->setAlignment(Qt::AlignLeft | Qt::AlignTop);
   auto list = new QListView(dialog);
@@ -206,6 +205,11 @@ static void showAlternativeResolverDialog(
 
   if (!args.contains("groupId")) {
     alwaysUse->hide();
+    dialog->setWindowTitle(QString::fromStdString("Select alternative"));
+  } else {
+    dialog->setWindowTitle(QString::fromStdString(
+        "Select alternative for " + args["kind"].get<std::string>() +
+        "::" + args["groupId"].get<std::string>()));
   }
 
   auto requirements = args["requirements"].get<AlternativeRequirements>();
@@ -230,6 +234,7 @@ static void showAlternativeResolverDialog(
 
         if (alwaysUse->isChecked()) {
           context.selectAlternative(
+              args["kind"].get<std::string>(),
               args["groupId"].get<std::string>(),
               context.findAlternative(alternatives[index.row()].id()));
         }
@@ -733,19 +738,17 @@ static QWidget *createMainWidget(Context &context) {
   widget->resize(800, 600);
   widget->hide();
 
-  widget->show();
-  widget->setFocus();
-
   return widget;
 }
 
 struct BuiltinAlternatives final : public Alternative {
   QWidget *mainWidget;
   BuiltinAlternatives(Context &context)
-      : Alternative(Manifest{.name = "Built-in alternatives",
-                             .contributes{.views = {"main", "package-sources",
-                                                    "alternative-resolver",
-                                                    "packages", "devices"}}}) {}
+      : Alternative(
+            Manifest{.name = "Built-in alternatives",
+                     .contributes{.views = {"main", "package-sources",
+                                            "alternative-resolver", "packages",
+                                            "devices", "error"}}}) {}
 
   std::error_code activate(Context &context) override {
     mainWidget = createMainWidget(context);
@@ -792,6 +795,11 @@ struct BuiltinAlternatives final : public Alternative {
       if (id == "devices") {
         // FIXME: implement
         responseHandler({});
+        return;
+      }
+
+      if (id == "error") {
+        showErrorDialog(context, args["params"], std::move(responseHandler));
         return;
       }
 

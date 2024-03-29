@@ -62,10 +62,10 @@ std::error_code AlternativeGroup::activate(Context &context) {
     }
 
     MethodCallResult resolverResponse;
-    if (context.showView("alternative-resolver",
-                         {{"alternatives", alternatives}}, &resolverResponse,
-                         false)) {
-      return std::make_error_code(std::errc::no_such_file_or_directory);
+    if (auto ec = context.showView("alternative-resolver",
+                                   {{"alternatives", alternatives}},
+                                   &resolverResponse, false)) {
+      return ec;
     }
 
     selected = candidates[resolverResponse.get<std::size_t>()];

@@ -39,7 +39,7 @@ struct Context : AlternativeStorage {
   Settings settings;
   std::mutex mutex;
 
-  AlternativeStorage methodHandlers;
+  AlternativeStorage methods;
   AlternativeStorage views;
 
   std::set<std::shared_ptr<Alternative>> activeList;
@@ -49,7 +49,11 @@ struct Context : AlternativeStorage {
            std::less<>>
       notificationHandlers;
 
+  Context();
+
   void addAlternative(std::shared_ptr<Alternative> alternative);
+  void selectAlternative(std::string_view kind, std::string_view groupId,
+                         std::shared_ptr<Alternative> alternative);
 
   std::error_code showView(std::string_view name, MethodCallArgs args = {},
                            MethodCallResult *response = nullptr,

@@ -10,6 +10,8 @@
 #include <vector>
 
 struct AlternativeStorage {
+  std::string kind;
+
   std::map<std::string, std::shared_ptr<AlternativeGroup>, std::less<>>
       alternativeGroups;
 

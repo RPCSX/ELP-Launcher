@@ -85,6 +85,7 @@ std::shared_ptr<Alternative> AlternativeStorage::findAlternativeOrResolve(
                              {"alternatives", alternatives},
                              {"requirements", requirements},
                              {"groupId", name},
+                             {"kind", kind},
                          },
                          &response, false)) {
       return {};
@@ -92,12 +93,16 @@ std::shared_ptr<Alternative> AlternativeStorage::findAlternativeOrResolve(
 
     if (response.is_number_integer()) {
       auto index = response.get<int>();
-      if (index >= 0 && index < result.size()) {
-        return result[index];
-      }
-    }
+      if (index >= 0) {
+        if (index < result.size()) {
+          return result[index];
+        }
 
-    return findAlternative(name, requirements);
+        return findAlternativeOrResolve(context, name, requirements);
+      }
+    } else {
+      return {};
+    }
   }
 
   if (context.showView("packages",
@@ -110,7 +115,7 @@ std::shared_ptr<Alternative> AlternativeStorage::findAlternativeOrResolve(
     return {};
   }
 
-  return findAlternative(name, requirements);
+  return findAlternativeOrResolve(context, name, requirements);
 }
 
 std::shared_ptr<Alternative>

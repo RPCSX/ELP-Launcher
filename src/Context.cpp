@@ -25,6 +25,12 @@ splitOnce(std::string_view string, char separator) {
   return {string.substr(0, pos), string.substr(pos + 1)};
 }
 
+Context::Context() {
+  kind = "components";
+  views.kind = "views";
+  methods.kind = "methods";
+}
+
 void Context::addAlternative(std::shared_ptr<Alternative> alternative) {
   auto altId = alternative->manifest().id();
   if (auto [it, inserted] = allAlternatives.try_emplace(altId, alternative);
@@ -46,8 +52,8 @@ void Context::addAlternative(std::shared_ptr<Alternative> alternative) {
   }
 
   for (auto &ext : alternative->manifest().contributes.methods) {
-    methodHandlers.addAlternativeGroup(ext, "");
-    methodHandlers.addAlternativeToGroup(ext, alternative);
+    methods.addAlternativeGroup(ext, "");
+    methods.addAlternativeToGroup(ext, alternative);
   }
 
   for (auto &ext : alternative->manifest().contributes.views) {
@@ -55,6 +61,22 @@ void Context::addAlternative(std::shared_ptr<Alternative> alternative) {
     views.addAlternativeToGroup(ext, alternative);
   }
 }
+
+void Context::selectAlternative(std::string_view kind, std::string_view groupId, std::shared_ptr<Alternative> alternative) {
+  if (kind == this->kind) {
+    AlternativeStorage::selectAlternative(groupId, std::move(alternative));
+    return;
+  }
+  if (kind == views.kind) {
+    views.selectAlternative(groupId, std::move(alternative));
+    return;
+  }
+  if (kind == methods.kind) {
+    methods.selectAlternative(groupId, std::move(alternative));
+    return;
+  }
+}
+
 
 std::error_code Context::showView(std::string_view name, MethodCallArgs args,
                                   MethodCallResult *response, bool tryResolve) {
@@ -73,8 +95,12 @@ std::error_code Context::showView(std::string_view name, MethodCallArgs args,
     }
 
     alt->callMethod(*this, "view/show",
-                    {{"id", name}, {"args", std::move(args)}},
-                    createShowErrorFn());
+                    {{"id", name}, {"params", std::move(args)}},
+                    createShowErrorFn([=](const MethodCallResult &result) {
+                      if (response != nullptr) {
+                        *response = result;
+                      }
+                    }));
     return {};
   }
 
@@ -120,7 +146,7 @@ void Context::callMethod(
     std::string_view name, const AlternativeRequirements &requirements,
     const MethodCallArgs &args,
     std::move_only_function<void(const MethodCallResult &)> responseHandler) {
-  if (auto alternative = methodHandlers.findAlternative(name, requirements)) {
+  if (auto alternative = methods.findAlternative(name, requirements)) {
     alternative->callMethod(*this, name, args, std::move(responseHandler));
   } else {
     responseHandler({{"error", elp::ErrorCode::MethodNotFound}});
