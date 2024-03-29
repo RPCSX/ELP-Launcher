@@ -42,11 +42,8 @@ public:
   }
   virtual void handleNotification(Context &context, std::string_view name,
                                   NotificationArgs args) {}
-  virtual std::error_code activate(Context &context, std::string_view role,
-                                   MethodCallArgs args,
-                                   MethodCallResult *response) = 0;
-  virtual std::error_code deactivate(Context &context,
-                                     std::string_view role) = 0;
+  virtual std::error_code activate(Context &context) { return {}; }
+  virtual std::error_code deactivate(Context &context) { return {}; }
 
   bool match(const AlternativeRequirements &requirements) const {
     return manifest().match(requirements);

@@ -34,7 +34,8 @@ struct AlternativeGroup final : Alternative {
       return;
     }
 
-    if (std::find(candidates.begin(), candidates.end(), alternative) != candidates.end()) {
+    if (std::find(candidates.begin(), candidates.end(), alternative) !=
+        candidates.end()) {
       return;
     }
 
@@ -49,10 +50,8 @@ struct AlternativeGroup final : Alternative {
       std::move_only_function<void(MethodCallResult)> responseHandler) override;
   void handleNotification(Context &context, std::string_view name,
                           NotificationArgs args) override;
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args,
-                           MethodCallResult *response) override;
-  std::error_code deactivate(Context &context, std::string_view role) override;
+  std::error_code activate(Context &context) override;
+  std::error_code deactivate(Context &context) override;
 
   const Manifest &manifest() const override {
     if (selected != nullptr) {

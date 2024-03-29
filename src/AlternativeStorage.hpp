@@ -18,60 +18,25 @@ struct AlternativeStorage {
 
   std::vector<std::shared_ptr<Alternative>>
   findAlternatives(std::string_view groupId,
-                   const AlternativeRequirements &requirements) {
-    if (auto it = alternativeGroups.find(groupId);
-        it != alternativeGroups.end()) {
-      return it->second->find(requirements);
-    }
-    return {};
-  }
+                   const AlternativeRequirements &requirements);
 
   void selectAlternative(std::string_view groupId,
-                         std::shared_ptr<Alternative> alternative) {
-    if (auto it = alternativeGroups.find(groupId);
-        it != alternativeGroups.end()) {
-      it->second->select(std::move(alternative));
-    }
-  }
+                         std::shared_ptr<Alternative> alternative);
 
   bool addAlternativeToGroup(std::string_view groupId,
-                             std::shared_ptr<Alternative> alternative) {
-    auto groupIt = alternativeGroups.find(groupId);
-    if (groupIt == alternativeGroups.end()) {
-      return false;
-    }
-
-    groupIt->second->add(std::move(alternative));
-    return true;
-  }
-
-  bool addAlternativeGroup(std::string groupId, std::string name) {
-    auto [it, inserted] =
-        alternativeGroups.try_emplace(std::move(groupId), nullptr);
-    if (inserted) {
-      it->second = std::make_shared<AlternativeGroup>(
-          Manifest{.name = name.empty() ? groupId : name});
-      it->second->candidateRequirements.alternatives.push_back(groupId);
-    }
-
-    return inserted;
-  }
-
+                             std::shared_ptr<Alternative> alternative);
+  bool addAlternativeGroup(std::string groupId, std::string name);
   void removeAlternative(std::string_view groupId,
-                         const std::shared_ptr<Alternative> &alternative) {
-    auto groupIt = alternativeGroups.find(groupId);
-    if (groupIt == alternativeGroups.end()) {
-      return;
-    }
+                         const std::shared_ptr<Alternative> &alternative);
 
-    groupIt->second->remove(alternative);
-  }
+  std::shared_ptr<Alternative>
+  findAlternative(std::string_view name,
+                  const AlternativeRequirements &requirements = {});
 
+  std::shared_ptr<Alternative>
+  findAlternativeOrResolve(Context &context, std::string_view name,
+                           const AlternativeRequirements &requirements = {});
+  std::shared_ptr<Alternative> findAlternativeById(std::string_view id);
   void
-  removeAlternativeFromAll(const std::shared_ptr<Alternative> &alternative) {
-    for (auto &[groupName, group] : alternativeGroups) {
-      group->remove(alternative);
-    }
-    allAlternatives.erase(alternative->manifest().id());
-  }
+  removeAlternativeFromAll(const std::shared_ptr<Alternative> &alternative);
 };

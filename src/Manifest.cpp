@@ -55,14 +55,14 @@ bool Manifest::match(const AlternativeRequirements &requirements) const {
   return true;
 }
 
-auto jsonGetKeyIfExists = [](const nlohmann::json &json, auto &result, const char *key) {
+void jsonGetKeyIfExists(const nlohmann::json &json, auto &result,
+                        const char *key) {
   if (auto it = json.find(key); it != json.end()) {
     result = std::remove_cvref_t<decltype(result)>(*it);
   } else {
     result = std::remove_cvref_t<decltype(result)>{};
   }
-};
-
+}
 
 void from_json(const nlohmann::json &json, Manifest::Launch &object) {
   object.executable = json.at("executable");
@@ -118,12 +118,14 @@ void to_json(nlohmann::json &json, const Manifest::Command &object) {
 void from_json(const nlohmann::json &json, Manifest::ApiSet &object) {
   jsonGetKeyIfExists(json, object.alternatives, "alternatives");
   jsonGetKeyIfExists(json, object.methods, "methods");
+  jsonGetKeyIfExists(json, object.views, "views");
   jsonGetKeyIfExists(json, object.packages, "packages");
 }
 
 void to_json(nlohmann::json &json, const Manifest::ApiSet &object) {
   json["alternatives"] = object.alternatives;
   json["methods"] = object.methods;
+  json["views"] = object.views;
   json["packages"] = object.packages;
 }
 

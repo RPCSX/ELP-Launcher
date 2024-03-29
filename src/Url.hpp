@@ -22,7 +22,10 @@ public:
       return relative;
     }
 
-    if (!QDir::isRelativePath(QString::fromUtf8(relative))) {
+    auto relativeQStr = QString::fromUtf8(relative);
+    auto relativeQUrl = QUrl(relativeQStr);
+    if (!QDir::isRelativePath(relativeQStr) ||
+        (relativeQUrl.isValid() && !relativeQUrl.isRelative())) {
       Url result(relative);
       if (!result.underlying().isRelative()) {
         return result;
@@ -30,7 +33,8 @@ public:
     }
 
     auto absoluteUrl = base.underlying();
-    absoluteUrl.setPath(QDir::cleanPath(absoluteUrl.path() + "/" + QString::fromUtf8(relative)));
+    absoluteUrl.setPath(QDir::cleanPath(absoluteUrl.path() + "/" +
+                                        QString::fromUtf8(relative)));
     return Url(absoluteUrl);
   }
 

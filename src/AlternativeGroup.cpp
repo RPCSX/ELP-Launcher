@@ -52,10 +52,7 @@ void AlternativeGroup::handleNotification(Context &context,
   Alternative::handleNotification(context, name, std::move(args));
 }
 
-std::error_code AlternativeGroup::activate(Context &context,
-                                           std::string_view role,
-                                           MethodCallArgs args,
-                                           MethodCallResult *response) {
+std::error_code AlternativeGroup::activate(Context &context) {
   if (selected == nullptr) {
     std::vector<Manifest> alternatives;
     alternatives.reserve(candidates.size());
@@ -74,13 +71,12 @@ std::error_code AlternativeGroup::activate(Context &context,
     selected = candidates[resolverResponse.get<std::size_t>()];
   }
 
-  return selected->activate(context, role, std::move(args), response);
+  return selected->activate(context);
 }
 
-std::error_code AlternativeGroup::deactivate(Context &context,
-                                             std::string_view role) {
+std::error_code AlternativeGroup::deactivate(Context &context) {
   if (selected != nullptr) {
-    return selected->deactivate(context, role);
+    return selected->deactivate(context);
   }
 
   return std::make_error_code(std::errc::no_such_file_or_directory);

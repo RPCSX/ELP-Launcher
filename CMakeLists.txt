@@ -23,6 +23,7 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_executable(${PROJECT_NAME}
     src/AlternativeGroup.cpp
+    src/AlternativeStorage.cpp
     src/Context.cpp
     src/main.cpp
     src/Widget.cpp

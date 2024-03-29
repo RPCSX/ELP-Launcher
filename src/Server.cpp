@@ -2,9 +2,7 @@
 #include "Protocol.hpp"
 #include "Transport.hpp"
 
-std::error_code Server::activate(Context &context, std::string_view role,
-                                 MethodCallArgs args,
-                                 MethodCallResult *response) {
+std::error_code Server::activate(Context &context) {
   if (m_process) {
     return std::make_error_code(std::errc::file_exists);
   }
@@ -26,8 +24,7 @@ std::error_code Server::activate(Context &context, std::string_view role,
   return ec;
 }
 
-std::error_code Server::deactivate(Context &context, std::string_view role) {
+std::error_code Server::deactivate(Context &context) {
   // TODO
   return {};
 }
-

@@ -1,11 +1,10 @@
 #pragma once
 
 #include "AlternativeRequirements.hpp"
-#include <filesystem>
+#include <nlohmann/json_fwd.hpp>
 #include <set>
 #include <string>
 #include <vector>
-#include <nlohmann/json_fwd.hpp>
 
 struct Manifest {
   struct Command {
@@ -36,6 +35,7 @@ struct Manifest {
 
   struct ApiSet {
     std::set<std::string> alternatives;
+    std::set<std::string> views;
     std::set<std::string> methods;
     std::vector<Manifest> packages;
   };

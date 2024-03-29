@@ -11,10 +11,8 @@
 struct Server : Alternative {
   using Alternative::Alternative;
 
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args,
-                           MethodCallResult *response) override;
-  std::error_code deactivate(Context &context, std::string_view role) override;
+  std::error_code activate(Context &context) override;
+  std::error_code deactivate(Context &context) override;
 
   Protocol *protocol() { return m_protocol.get(); }
 

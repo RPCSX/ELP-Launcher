@@ -25,19 +25,6 @@ splitOnce(std::string_view string, char separator) {
   return {string.substr(0, pos), string.substr(pos + 1)};
 }
 
-class PackageAlternative : public Alternative {
-public:
-  using Alternative::Alternative;
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args,
-                           MethodCallResult *response) override {
-    return {};
-  }
-  std::error_code deactivate(Context &context, std::string_view role) override {
-    return {};
-  }
-};
-
 void Context::addAlternative(std::shared_ptr<Alternative> alternative) {
   auto altId = alternative->manifest().id();
   if (auto [it, inserted] = allAlternatives.try_emplace(altId, alternative);
@@ -58,88 +45,50 @@ void Context::addAlternative(std::shared_ptr<Alternative> alternative) {
     groupIt->second->add(alternative);
   }
 
-  for (auto ext : alternative->manifest().contributes.methods) {
-    auto group = "method/" + std::string(ext);
-    addAlternativeGroup(group, "");
-    addAlternativeToGroup(group, alternative);
-  }
-}
-
-std::shared_ptr<Alternative>
-Context::findAlternative(std::string_view name,
-                         const AlternativeRequirements &requirements,
-                         bool tryResolve) {
-  if (auto it = alternativeGroups.find(name); it != alternativeGroups.end()) {
-    auto result = it->second->getSelectedOrFind(requirements);
-
-    if (result.size() == 1) {
-      return result.front();
-    }
-
-    if (!tryResolve) {
-      return result.back();
-    }
-
-    MethodCallResult response;
-    std::vector<Manifest> alternatives;
-    alternatives.reserve(result.size());
-
-    for (auto &candidate : result) {
-      alternatives.push_back(candidate->manifest());
-    }
-
-    if (showView("alternative-resolver",
-                 {
-                     {"alternatives", alternatives},
-                     {"requirements", requirements},
-                     {"groupId", name},
-                 },
-                 &response, false)) {
-      return {};
-    }
-
-    if (response.is_number_integer()) {
-      auto index = response.get<int>();
-      if (index >= 0 && index < result.size()) {
-        return result[index];
-      }
-    }
-
-    return findAlternative(name, requirements);
+  for (auto &ext : alternative->manifest().contributes.methods) {
+    methodHandlers.addAlternativeGroup(ext, "");
+    methodHandlers.addAlternativeToGroup(ext, alternative);
   }
 
-  if (!tryResolve) {
-    return {};
+  for (auto &ext : alternative->manifest().contributes.views) {
+    views.addAlternativeGroup(ext, "");
+    views.addAlternativeToGroup(ext, alternative);
   }
-
-  if (showView("packages", {{"requirements", requirements}, {"dialog", true}},
-               nullptr, false)) {
-    return {};
-  }
-
-  if (!alternativeGroups.contains(name)) {
-    return {};
-  }
-
-  return findAlternative(name, requirements);
 }
 
 std::error_code Context::showView(std::string_view name, MethodCallArgs args,
                                   MethodCallResult *response, bool tryResolve) {
-  auto role = "view/" + std::string(name);
+  std::shared_ptr<Alternative> alt;
 
-  if (auto alt = findAlternative(role, {}, tryResolve)) {
-    return alt->activate(*this, role, std::move(args), response);
+  if (tryResolve) {
+    alt = views.findAlternativeOrResolve(*this, name, {});
+  } else {
+    alt = views.findAlternative(name, {});
+  }
+
+  if (alt != nullptr) {
+    auto ec = activate(alt);
+    if (ec && ec != std::errc::already_connected) {
+      return ec;
+    }
+
+    alt->callMethod(*this, "view/show",
+                    {{"id", name}, {"args", std::move(args)}},
+                    createShowErrorFn());
+    return {};
   }
 
   return std::make_error_code(std::errc::no_such_file_or_directory);
 }
 
 std::error_code Context::hideView(std::string_view name) {
-  auto role = "view/" + std::string(name);
+  if (auto alt = findAlternative(name, {})) {
+    if (!isActive(alt)) {
+      return std::make_error_code(std::errc::not_connected);
+    }
 
-  if (auto alt = findAlternative(role, {}, false)) {
-    return alt->deactivate(*this, role);
+    alt->callMethod(*this, "view/hide", {{"id", name}}, createShowErrorFn());
+    return {};
   }
 
   return std::make_error_code(std::errc::no_such_file_or_directory);
@@ -171,21 +120,11 @@ void Context::callMethod(
     std::string_view name, const AlternativeRequirements &requirements,
     const MethodCallArgs &args,
     std::move_only_function<void(const MethodCallResult &)> responseHandler) {
-  // TODO: split methods and packages
-
-  if (auto alternative =
-          findAlternative("method/" + std::string(name), requirements)) {
+  if (auto alternative = methodHandlers.findAlternative(name, requirements)) {
     alternative->callMethod(*this, name, args, std::move(responseHandler));
   } else {
     responseHandler({{"error", elp::ErrorCode::MethodNotFound}});
   }
-}
-
-std::shared_ptr<Alternative> Context::findAlternativeById(std::string_view id) {
-  if (auto it = allAlternatives.find(id); it != allAlternatives.end()) {
-    return it->second;
-  }
-  return {};
 }
 
 void Context::addPackage(const Url &source, const Url &path,
@@ -197,7 +136,10 @@ void Context::addPackage(const Url &source, const Url &path,
 
   for (auto ext : manifest.contributes.packages) {
     if (ext.install) {
-      auto extPath = Url::makeFromRelative(Url(path), ext.install->path);
+      auto extPath = Url::makeFromRelative(path, ext.install->path);
+      if (!ext.icon.empty()) {
+        ext.icon = Url::makeFromRelative(path, ext.icon).toString();
+      }
       addPackage(path, std::move(extPath), std::move(ext));
     }
   }
@@ -207,23 +149,74 @@ void Context::addPackage(const Url &source, const Url &path,
 
   auto ui = manifest.ui;
   auto id = manifest.id();
-  auto alt = std::make_shared<PackageAlternative>(std::move(manifest));
+  auto alt = std::make_shared<Alternative>(std::move(manifest));
   addAlternative(alt);
 
   sendNotification("packages/change", {
                                           {"add", nlohmann::json::array({id})},
                                       });
 
-
   if (!ui.empty()) {
-    Url::makeFromRelative(path, ui).asyncGet().then(
-    [=](QByteArray bytes) {
+    Url::makeFromRelative(path, ui).asyncGet().then([=](QByteArray bytes) {
       IdToSchemaMap uiIdMap;
       auto uiSchemaNode = parseUiFile(uiIdMap, bytes);
       alt->setUiSchema(std::move(uiSchemaNode), std::move(uiIdMap));
-    }
-  );
+    });
   }
+}
+
+std::error_code Context::activate(std::string_view id) {
+  auto alt = findAlternativeById(id);
+  if (alt == nullptr) {
+    return std::make_error_code(std::errc::no_such_file_or_directory);
+  }
+  return activate(alt);
+}
+
+std::error_code Context::deactivate(std::string_view id) {
+  auto alt = findAlternativeById(id);
+  if (alt == nullptr) {
+    return std::make_error_code(std::errc::no_such_file_or_directory);
+  }
+
+  return deactivate(alt);
+}
+
+bool Context::isActive(std::string_view id) {
+  auto alt = findAlternativeById(id);
+  if (alt == nullptr) {
+    return false;
+  }
+
+  return isActive(alt);
+}
+
+std::error_code Context::activate(const std::shared_ptr<Alternative> &alt) {
+  if (activeList.insert(alt).second) {
+    auto ec = alt->activate(*this);
+    if (ec) {
+      activeList.erase(alt);
+    }
+    return ec;
+  }
+
+  return std::make_error_code(std::errc::already_connected);
+}
+
+std::error_code Context::deactivate(const std::shared_ptr<Alternative> &alt) {
+  if (activeList.erase(alt)) {
+    auto ec = alt->deactivate(*this);
+    if (ec) {
+      activeList.insert(alt);
+    }
+    return ec;
+  }
+
+  return std::make_error_code(std::errc::not_connected);
+}
+
+bool Context::isActive(const std::shared_ptr<Alternative> &alt) {
+  return activeList.contains(alt);
 }
 
 void Context::loadSettings() {
@@ -261,12 +254,14 @@ Settings &Context::getSettings(std::string_view path, Settings defValue) {
   return *result;
 }
 
-Settings &Context::getSettingsFor(const std::shared_ptr<Alternative> &alt, std::string_view path, Settings defValue) {
+Settings &Context::getSettingsFor(const std::shared_ptr<Alternative> &alt,
+                                  std::string_view path, Settings defValue) {
   if (path.empty()) {
     return *settings.emplace(alt->manifest().id(), std::move(defValue)).first;
   }
 
-  auto result = &*settings.emplace(alt->manifest().id(), Settings::object_t{}).first;
+  auto result =
+      &*settings.emplace(alt->manifest().id(), Settings::object_t{}).first;
   while (!path.empty()) {
     auto [chunk, rest] = splitOnce(path, '/');
     path = rest;

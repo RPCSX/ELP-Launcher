@@ -39,19 +39,17 @@ struct Context : AlternativeStorage {
   Settings settings;
   std::mutex mutex;
 
+  AlternativeStorage methodHandlers;
+  AlternativeStorage views;
+
+  std::set<std::shared_ptr<Alternative>> activeList;
+
   std::map<std::string,
            std::list<std::move_only_function<void(const NotificationArgs &)>>,
            std::less<>>
       notificationHandlers;
 
   void addAlternative(std::shared_ptr<Alternative> alternative);
-
-  std::shared_ptr<Alternative>
-  findAlternative(std::string_view name,
-                  const AlternativeRequirements &requirements = {},
-                  bool tryResolve = true);
-
-  std::shared_ptr<Alternative> findAlternativeById(std::string_view id);
 
   std::error_code showView(std::string_view name, MethodCallArgs args = {},
                            MethodCallResult *response = nullptr,
@@ -71,11 +69,9 @@ struct Context : AlternativeStorage {
       std::string_view name, const AlternativeRequirements &requirements,
       const MethodCallArgs &args,
       std::move_only_function<void(const MethodCallResult &)> responseHandler);
-  void callMethodShowErrors(
-      std::string_view name, const AlternativeRequirements &requirements,
-      const MethodCallArgs &args,
-      std::move_only_function<void(const MethodCallResult &)> responseHandler =
-          nullptr) {
+
+  auto createShowErrorFn(std::move_only_function<void(const MethodCallResult &)>
+                             responseHandler = nullptr) {
     auto impl = [this, responseHandler = std::move(responseHandler)](
                     const MethodCallResult &result) mutable {
       if (result.contains("error")) {
@@ -90,13 +86,31 @@ struct Context : AlternativeStorage {
       }
     };
 
-    callMethod(name, requirements, args, std::move(impl));
+    return impl;
   }
+
+  void callMethodShowErrors(
+      std::string_view name, const AlternativeRequirements &requirements,
+      const MethodCallArgs &args,
+      std::move_only_function<void(const MethodCallResult &)> responseHandler =
+          nullptr) {
+    callMethod(name, requirements, args,
+               createShowErrorFn(std::move(responseHandler)));
+  }
+
+  std::error_code activate(std::string_view id);
+  std::error_code deactivate(std::string_view id);
+  bool isActive(std::string_view id);
+
+  std::error_code activate(const std::shared_ptr<Alternative> &alt);
+  std::error_code deactivate(const std::shared_ptr<Alternative> &alt);
+  bool isActive(const std::shared_ptr<Alternative> &alt);
 
   void loadSettings();
   void saveSettings();
   Settings &getSettings(std::string_view path, Settings defValue = nullptr);
-  Settings &getSettingsFor(const std::shared_ptr<Alternative> &alt, std::string_view path, Settings defValue = nullptr);
+  Settings &getSettingsFor(const std::shared_ptr<Alternative> &alt,
+                           std::string_view path, Settings defValue = nullptr);
   void editPackageSources(std::span<const Url> add,
                           std::span<const Url> remove);
   void installPackage(std::string_view id);

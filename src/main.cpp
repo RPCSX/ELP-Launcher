@@ -35,263 +35,246 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStringListModel>
+#include <QSvgWidget>
 #include <QToolButton>
 #include <QValidator>
 #include <QWidget>
 #include <QXmlStreamReader>
 #include <QtConcurrent>
 
-struct BuiltinViewAlternative : public Alternative {
-  BuiltinViewAlternative(std::string id, std::string name)
-      : Alternative(Manifest{.name = name,
-                             .description = "Built-in " + name + " view",
-                             .contributes{.alternatives = {"view/" + id}}}) {}
+static void showPackageSourcesDialog(
+    Context &context, const MethodCallArgs &args,
+    std::move_only_function<void(MethodCallResult)> responseHandler) {
+  auto dialog = new QDialog(nullptr);
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  dialog->setWindowTitle(QString::fromStdString("Package sources"));
+  dialog->setLayout(new QVBoxLayout(dialog));
+  dialog->layout()->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+  dialog->setMinimumWidth(600);
 
-  std::error_code deactivate(Context &context, std::string_view role) override {
-    return {};
-  }
-};
+  auto addBtn = new QPushButton("Add", dialog);
+  dialog->layout()->addWidget(addBtn);
 
-struct DevicesWidget final : QWidget, BuiltinViewAlternative {
-  DevicesWidget(Context &context)
-      : BuiltinViewAlternative("devices", "Devices") {
-    setWindowTitle(QString::fromStdString(manifest().name));
-  }
+  std::vector<QLineEdit *> inputLines;
 
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args, MethodCallResult *) override {
-    show();
-    return {};
-  }
+  auto addInputLine = [&](std::string_view value) {
+    auto line = new QGroupBox(dialog);
+    line->setLayout(new QVBoxLayout(line));
+    auto inputLine = new QHBoxLayout();
 
-  std::error_code deactivate(Context &context, std::string_view role) override {
-    hide();
-    return {};
-  }
-};
+    auto edit = new QLineEdit(line);
+    inputLines.push_back(edit);
+    auto selectFolder = new QPushButton("Select folder", line);
+    edit->setText(QString::fromUtf8(value));
+    inputLine->addWidget(edit);
+    inputLine->addWidget(selectFolder);
 
-struct PackageSourcesDialog : BuiltinViewAlternative {
-  PackageSourcesDialog(Context &context)
-      : BuiltinViewAlternative("package-sources", "Package sources") {}
-
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args, MethodCallResult *) override {
-    auto dialog = new QDialog(nullptr);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(QString::fromStdString(manifest().name));
-    dialog->setLayout(new QVBoxLayout(dialog));
-    dialog->layout()->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    dialog->setMinimumWidth(600);
-
-    auto addBtn = new QPushButton("Add", dialog);
+    line->layout()->addItem(inputLine);
+    auto errorMessage = new QLabel(line);
+    errorMessage->hide();
+    line->layout()->addWidget(errorMessage);
+    dialog->layout()->replaceWidget(addBtn, line);
     dialog->layout()->addWidget(addBtn);
 
-    std::vector<QLineEdit *> inputLines;
+    auto validate = [=](const QString &newText) {
+      if (newText.isEmpty()) {
+        selectFolder->show();
+      } else {
+        selectFolder->hide();
+        auto url = Url(newText.toStdString());
 
-    auto addInputLine = [&](std::string_view value) {
-      auto line = new QGroupBox(dialog);
-      line->setLayout(new QVBoxLayout(line));
-      auto inputLine = new QHBoxLayout();
+        if (!url.valid()) {
+          errorMessage->setText("wrong URL");
+          errorMessage->show();
+          return;
+        }
 
-      auto edit = new QLineEdit(line);
-      inputLines.push_back(edit);
-      auto selectFolder = new QPushButton("Select folder", line);
-      edit->setText(QString::fromUtf8(value));
-      inputLine->addWidget(edit);
-      inputLine->addWidget(selectFolder);
-
-      line->layout()->addItem(inputLine);
-      auto errorMessage = new QLabel(line);
-      errorMessage->hide();
-      line->layout()->addWidget(errorMessage);
-      dialog->layout()->replaceWidget(addBtn, line);
-      dialog->layout()->addWidget(addBtn);
-
-      auto validate = [=](const QString &newText) {
-        if (newText.isEmpty()) {
-          selectFolder->show();
-        } else {
-          selectFolder->hide();
-          auto url = Url(newText.toStdString());
-
-          if (!url.valid()) {
-            errorMessage->setText("wrong URL");
+        if (url.isLocalPath()) {
+          auto localPath = url.toLocalPath();
+          auto status = std::filesystem::status(localPath);
+          if (status.type() != std::filesystem::file_type::directory &&
+              status.type() != std::filesystem::file_type::regular) {
+            errorMessage->setText("Local package not found");
             errorMessage->show();
             return;
           }
-
-          if (url.isLocalPath()) {
-            auto localPath = url.toLocalPath();
-            auto status = std::filesystem::status(localPath);
-            if (status.type() != std::filesystem::file_type::directory &&
-                status.type() != std::filesystem::file_type::regular) {
-              errorMessage->setText("Local package not found");
+          if (status.type() == std::filesystem::file_type::directory) {
+            if (!std::filesystem::is_regular_file(localPath /
+                                                  "manifest.json")) {
+              errorMessage->setText("Directory must contain manifest.json");
               errorMessage->show();
               return;
             }
-            if (status.type() == std::filesystem::file_type::directory) {
-              if (!std::filesystem::is_regular_file(localPath /
-                                                    "manifest.json")) {
-                errorMessage->setText("Directory must contain manifest.json");
-                errorMessage->show();
-                return;
-              }
-            }
           }
-
-          // TODO: provide more checks
         }
 
-        errorMessage->hide();
-      };
+        // TODO: provide more checks
+      }
 
-      validate(QString::fromUtf8(value));
-
-      QObject::connect(selectFolder, &QPushButton::clicked, [=] {
-        auto directory =
-            QFileDialog::getExistingDirectoryUrl(nullptr, {}, edit->text());
-        edit->setText(directory.toString());
-      });
-
-      QObject::connect(edit, &QLineEdit::textChanged, validate);
+      errorMessage->hide();
     };
 
-    auto watchConnection = context.createNotificationHandler(
-        "package-sources/change", [&](NotificationArgs args) {
-          if (args.contains("add")) {
-            for (auto &add : args["add"]) {
-              addInputLine(add.get<std::string>());
-            }
+    validate(QString::fromUtf8(value));
+
+    QObject::connect(selectFolder, &QPushButton::clicked, [=] {
+      auto directory =
+          QFileDialog::getExistingDirectoryUrl(nullptr, {}, edit->text());
+      edit->setText(directory.toString());
+    });
+
+    QObject::connect(edit, &QLineEdit::textChanged, validate);
+  };
+
+  auto watchConnection = context.createNotificationHandler(
+      "package-sources/change", [&](NotificationArgs args) {
+        if (args.contains("add")) {
+          for (auto &add : args["add"]) {
+            addInputLine(add.get<std::string>());
           }
-        });
-
-    std::set<std::string> prevLines;
-
-    {
-      auto &extSources =
-          context.getSettings("package-sources", Settings::array());
-      if (extSources.empty()) {
-        addInputLine({});
-      } else {
-        for (auto &source : extSources) {
-          auto line = source.get<std::string>();
-          addInputLine(line);
-          prevLines.insert(std::move(line));
         }
+      });
+
+  std::set<std::string> prevLines;
+
+  {
+    auto &extSources =
+        context.getSettings("package-sources", Settings::array());
+    if (extSources.empty()) {
+      addInputLine({});
+    } else {
+      for (auto &source : extSources) {
+        auto line = source.get<std::string>();
+        addInputLine(line);
+        prevLines.insert(std::move(line));
       }
     }
-
-    QObject::connect(addBtn, &QPushButton::clicked, [&] { addInputLine({}); });
-    QObject::connect(dialog, &QDialog::finished,
-                     [&inputLines, prevLines = std::move(prevLines),
-                      context = &context,
-                      watchConnection = std::move(watchConnection)] mutable {
-                       watchConnection.destroy();
-                       std::set<std::string> newLines;
-                       for (auto inputLine : inputLines) {
-                         if (!inputLine->text().isEmpty()) {
-                           newLines.insert(Url(inputLine->text()).toString());
-                         }
-                       }
-
-                       std::vector<Url> removeSources;
-                       std::vector<Url> addSources;
-
-                       for (auto &line : prevLines) {
-                         if (!newLines.contains(line)) {
-                           removeSources.push_back(Url(line));
-                         }
-                       }
-
-                       for (auto &line : newLines) {
-                         if (!prevLines.contains(line)) {
-                           addSources.push_back(Url(line));
-                         }
-                       }
-
-                       context->editPackageSources(addSources, removeSources);
-                     });
-    dialog->exec();
-    return {};
   }
-};
 
-struct AlternativeResolverDialog final : BuiltinViewAlternative {
-  AlternativeResolverDialog(Context &context)
-      : BuiltinViewAlternative("alternative-resolver", "Select alternative") {}
+  QObject::connect(addBtn, &QPushButton::clicked, [&] { addInputLine({}); });
+  QObject::connect(dialog, &QDialog::finished,
+                   [&inputLines, prevLines = std::move(prevLines),
+                    context = &context,
+                    watchConnection = std::move(watchConnection)] mutable {
+                     watchConnection.destroy();
+                     std::set<std::string> newLines;
+                     for (auto inputLine : inputLines) {
+                       if (!inputLine->text().isEmpty()) {
+                         newLines.insert(Url(inputLine->text()).toString());
+                       }
+                     }
 
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args,
-                           MethodCallResult *response) override {
-    QStringListModel *model = new QStringListModel();
+                     std::vector<Url> removeSources;
+                     std::vector<Url> addSources;
 
-    auto dialog = new QDialog(nullptr);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(QString::fromStdString(manifest().name));
-    dialog->setLayout(new QVBoxLayout(dialog));
-    dialog->layout()->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    auto list = new QListView(dialog);
-    dialog->layout()->addWidget(list);
-    list->setModel(model);
+                     for (auto &line : prevLines) {
+                       if (!newLines.contains(line)) {
+                         removeSources.push_back(Url(line));
+                       }
+                     }
 
-    auto alwaysUse = new QCheckBox("Always use this alternative", dialog);
-    dialog->layout()->addWidget(alwaysUse);
+                     for (auto &line : newLines) {
+                       if (!prevLines.contains(line)) {
+                         addSources.push_back(Url(line));
+                       }
+                     }
 
-    auto downloadBtn = new QPushButton("Download package", dialog);
-    dialog->layout()->addWidget(downloadBtn);
+                     context->editPackageSources(addSources, removeSources);
+                   });
+  dialog->exec();
+  responseHandler({});
+}
 
-    if (!args.contains("groupId")) {
-      alwaysUse->hide();
-    }
+static void showAlternativeResolverDialog(
+    Context &context, const MethodCallArgs &args,
+    std::move_only_function<void(MethodCallResult)> responseHandler) {
+  QStringListModel *model = new QStringListModel();
 
-    auto requirements = args["requirements"].get<AlternativeRequirements>();
-    auto alternatives = args["alternatives"].get<std::vector<Manifest>>();
-    QStringList alternativeList;
-    for (auto &alt : alternatives) {
-      alternativeList.push_back(QString::fromStdString(alt.id()));
-    }
-    model->setStringList(alternativeList);
+  auto dialog = new QDialog(nullptr);
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  dialog->setWindowTitle(QString::fromStdString("Select alternative"));
+  dialog->setLayout(new QVBoxLayout(dialog));
+  dialog->layout()->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+  auto list = new QListView(dialog);
+  dialog->layout()->addWidget(list);
+  list->setModel(model);
 
-    QObject::connect(downloadBtn, &QPushButton::clicked,
-                     [&] { dialog->done(2); });
+  auto alwaysUse = new QCheckBox("Always use this alternative", dialog);
+  dialog->layout()->addWidget(alwaysUse);
 
-    QObject::connect(
-        list, &QListView::doubleClicked, [&](const QModelIndex &index) {
-          if (index.row() < 0) {
-            return;
-          }
+  auto downloadBtn = new QPushButton("Download package", dialog);
+  dialog->layout()->addWidget(downloadBtn);
 
-          if (alwaysUse->isChecked()) {
-            context.selectAlternative(
-                args["groupId"].get<std::string>(),
-                context.findAlternative(alternatives[index.row()].id()));
-          }
-
-          if (response != nullptr) {
-            *response = index.row();
-          }
-          dialog->accept();
-        });
-
-    int result = dialog->exec();
-    if (result == QDialog::Accepted) {
-      return {};
-    }
-
-    if (result == 2) {
-      if (response != nullptr) {
-        *response = -1;
-      }
-
-      return {};
-    }
-
-    return std::make_error_code(std::errc::no_such_file_or_directory);
+  if (!args.contains("groupId")) {
+    alwaysUse->hide();
   }
-};
+
+  auto requirements = args["requirements"].get<AlternativeRequirements>();
+  auto alternatives = args["alternatives"].get<std::vector<Manifest>>();
+  QStringList alternativeList;
+  for (auto &alt : alternatives) {
+    alternativeList.push_back(QString::fromStdString(alt.id()));
+  }
+  model->setStringList(alternativeList);
+
+  MethodCallResult response;
+  QObject::connect(downloadBtn, &QPushButton::clicked, [&] {
+    response = -1;
+    dialog->accept();
+  });
+
+  QObject::connect(
+      list, &QListView::doubleClicked, [&](const QModelIndex &index) {
+        if (index.row() < 0) {
+          return;
+        }
+
+        if (alwaysUse->isChecked()) {
+          context.selectAlternative(
+              args["groupId"].get<std::string>(),
+              context.findAlternative(alternatives[index.row()].id()));
+        }
+
+        response = index.row();
+        dialog->accept();
+      });
+
+  int result = dialog->exec();
+  if (result == QDialog::Accepted) {
+    responseHandler(std::move(response));
+    return;
+  }
+
+  responseHandler({{"error", elp::ErrorCode::NotFound}});
+}
+
+static void showErrorDialog(
+    Context &context, const MethodCallArgs &args,
+    std::move_only_function<void(MethodCallResult)> responseHandler) {
+  auto dialog = new QDialog();
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  dialog->setWindowTitle(QString::fromStdString("Error Dialog"));
+  dialog->resize(400, 300);
+  dialog->setLayout(new QVBoxLayout(dialog));
+  auto message = new QLabel(dialog);
+  dialog->layout()->addWidget(message);
+
+  if (args.is_string()) {
+    message->setText(QString::fromStdString(args.get<std::string>()));
+  } else if (args.is_number_integer()) {
+    // FIXME: parse error code
+    message->setText(
+        QString::fromStdString(std::to_string(args.get<std::int64_t>())));
+  } else {
+    message->setText(QString::fromStdString(args.dump()));
+  }
+
+  dialog->exec();
+  responseHandler({});
+}
 
 struct AlternativeViewWidget : QGroupBox {
   QPixmap pixmap;
+  QSvgWidget *iconSvg;
   QLabel *icon;
   QLabel *label;
   QWidget *control;
@@ -308,6 +291,9 @@ struct AlternativeViewWidget : QGroupBox {
     setAttribute(Qt::WA_Hover);
     icon = new QLabel(this);
     icon->setFixedSize(200, 200);
+    iconSvg = new QSvgWidget(this);
+    iconSvg->setFixedSize(200, 200);
+    iconSvg->hide();
     label = new QLabel(this);
     label->setAlignment(Qt::AlignCenter);
 
@@ -425,6 +411,7 @@ struct AlternativeViewWidget : QGroupBox {
           });
     }
 
+    layout()->addWidget(iconSvg);
     layout()->addWidget(icon);
     layout()->addWidget(label);
   }
@@ -449,26 +436,37 @@ struct AlternativeViewWidget : QGroupBox {
 
       initIconFuture = url.asyncGet().then(
           QtFuture::Launch::Async,
-          [this, scaleSize = icon->size()](QByteArray &&array) {
+          [this, scaleSize = iconSvg->size(), url](QByteArray &&array) {
             if (array.isEmpty()) {
               return;
             }
 
-            pixmap.loadFromData(array);
+            if (url.underlying().path().toCaseFolded().endsWith(".svg")) {
+              QMetaObject::invokeMethod(this, [this, array = std::move(array)] {
+                icon->hide();
+                iconSvg->show();
+                iconSvg->load(array);
+              });
 
-            if (pixmap.isNull()) {
-              return;
+            } else {
+              pixmap.loadFromData(array);
+
+              if (pixmap.isNull()) {
+                return;
+              }
+
+              auto scaledPixmap =
+                  pixmap.scaled(scaleSize.width(), scaleSize.height(),
+                                Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+              QMetaObject::invokeMethod(
+                  this, [this, scaledPixmap = std::move(scaledPixmap)] {
+                    icon->show();
+                    iconSvg->hide();
+                    icon->clear();
+                    icon->setPixmap(scaledPixmap);
+                  });
             }
-
-            auto scaledPixmap =
-                pixmap.scaled(scaleSize.width(), scaleSize.height(),
-                              Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-            QMetaObject::invokeMethod(
-                this, [this, scaledPixmap = std::move(scaledPixmap)] {
-                  icon->clear();
-                  icon->setPixmap(scaledPixmap);
-                });
           });
     }
 
@@ -679,112 +677,138 @@ createPackagesWidget(Context &context,
   return widget;
 }
 
-struct PackagesWidget final : BuiltinViewAlternative {
-  PackagesWidget(Context &context)
-      : BuiltinViewAlternative("packages", "Packages") {}
+static void showPackagesDialog(
+    Context &context, const MethodCallArgs &args,
+    std::move_only_function<void(MethodCallResult)> responseHandler) {
+  AlternativeRequirements requirements;
 
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args,
-                           MethodCallResult *result) override {
-    AlternativeRequirements requirements;
-
-    if (args.contains("requirements")) {
-      requirements = args["requirements"].get<AlternativeRequirements>();
-    }
-
-    auto menuBar = new QMenuBar();
-    auto menu = new QMenu(menuBar);
-    menuBar->addMenu(menu);
-    menu->setTitle("File");
-    QObject::connect(
-        menu->addAction("Sources"), &QAction::triggered,
-        [context = &context] { context->showView("package-sources"); });
-
-    auto widget = createPackagesWidget(context, requirements, menuBar);
-    widget->setWindowTitle(QString::fromStdString(manifest().name));
-    menuBar->setParent(widget);
-
-    if (args.contains("dialog") && args["dialog"]) {
-      auto dialog = new QDialog();
-      dialog->setAttribute(Qt::WA_DeleteOnClose);
-      widget->setParent(dialog);
-      dialog->setLayout(new QVBoxLayout(dialog));
-      dialog->setContentsMargins(0, 0, 0, 0);
-      dialog->layout()->addWidget(widget);
-      dialog->setModal(true);
-      dialog->exec();
-    } else {
-      widget->setAttribute(Qt::WA_DeleteOnClose);
-      widget->show();
-      widget->setFocus();
-    }
-
-    return {};
+  if (args.contains("requirements")) {
+    requirements = args["requirements"].get<AlternativeRequirements>();
   }
 
-  std::error_code deactivate(Context &context, std::string_view role) override {
-    return {};
-  }
-};
+  auto menuBar = new QMenuBar();
+  auto menu = new QMenu(menuBar);
+  menuBar->addMenu(menu);
+  menu->setTitle("File");
+  QObject::connect(
+      menu->addAction("Sources"), &QAction::triggered,
+      [context = &context] { context->showView("package-sources"); });
 
-struct MainWidget final : BuiltinViewAlternative {
-  QWidget *widget;
-  MainWidget(Context &context)
-      : BuiltinViewAlternative("main", "ELP Launcher") {
-    auto menuBar = new QMenuBar();
-    auto menu = new QMenu(menuBar);
-    menuBar->addMenu(menu);
-    menu->setTitle("File");
-    QObject::connect(menu->addAction("Packages"), &QAction::triggered,
-                     [context = &context] { context->showView("packages"); });
-    QObject::connect(menu->addAction("Devices"), &QAction::triggered,
-                     [context = &context] { context->showView("devices"); });
+  auto widget = createPackagesWidget(context, requirements, menuBar);
+  widget->setWindowTitle(QString::fromStdString("Packages"));
+  menuBar->setParent(widget);
 
-    widget = createPackagesWidget(context, {.hasLaunch = true}, menuBar);
-    menuBar->setParent(widget);
-
-    widget->setWindowTitle(QString::fromStdString(manifest().name));
-    widget->resize(800, 600);
-  }
-
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args, MethodCallResult *) override {
+  if (args.contains("dialog") && args["dialog"]) {
+    auto dialog = new QDialog();
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    widget->setParent(dialog);
+    dialog->setLayout(new QVBoxLayout(dialog));
+    dialog->setContentsMargins(0, 0, 0, 0);
+    dialog->layout()->addWidget(widget);
+    dialog->setModal(true);
+    dialog->exec();
+    responseHandler({});
+  } else {
+    widget->setAttribute(Qt::WA_DeleteOnClose);
     widget->show();
     widget->setFocus();
-    return {};
-  }
-
-  std::error_code deactivate(Context &context, std::string_view role) override {
-    widget->hide();
-    return {};
+    responseHandler({});
   }
 };
 
-struct ShowErrorDialog final : BuiltinViewAlternative {
-  ShowErrorDialog(Context &context)
-      : BuiltinViewAlternative("error", "Error Dialog") {}
+static QWidget *createMainWidget(Context &context) {
+  auto menuBar = new QMenuBar();
+  auto menu = new QMenu(menuBar);
+  menuBar->addMenu(menu);
+  menu->setTitle("File");
+  QObject::connect(menu->addAction("Packages"), &QAction::triggered,
+                   [context = &context] { context->showView("packages"); });
+  QObject::connect(menu->addAction("Devices"), &QAction::triggered,
+                   [context = &context] { context->showView("devices"); });
 
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args, MethodCallResult *) override {
-    auto dialog = new QDialog();
-    dialog->setWindowTitle(QString::fromStdString(manifest().name));
-    dialog->resize(400, 300);
-    dialog->setLayout(new QVBoxLayout(dialog));
-    auto message = new QLabel(dialog);
-    dialog->layout()->addWidget(message);
+  auto widget = createPackagesWidget(context, {.hasLaunch = true}, menuBar);
+  menuBar->setParent(widget);
 
-    if (args.is_string()) {
-      message->setText(QString::fromStdString(args.get<std::string>()));
-    } else if (args.is_number_integer()) {
-      // FIXME: parse error code
-      message->setText(
-          QString::fromStdString(std::to_string(args.get<std::int64_t>())));
-    } else {
-      message->setText(QString::fromStdString(args.dump()));
+  widget->setWindowTitle(QString::fromStdString("ELP Launcher"));
+  widget->resize(800, 600);
+  widget->hide();
+
+  widget->show();
+  widget->setFocus();
+
+  return widget;
+}
+
+struct BuiltinAlternatives final : public Alternative {
+  QWidget *mainWidget;
+  BuiltinAlternatives(Context &context)
+      : Alternative(Manifest{.name = "Built-in alternatives",
+                             .contributes{.views = {"main", "package-sources",
+                                                    "alternative-resolver",
+                                                    "packages", "devices"}}}) {}
+
+  std::error_code activate(Context &context) override {
+    mainWidget = createMainWidget(context);
+
+    return {};
+  }
+
+  std::error_code deactivate(Context &context) override {
+    delete mainWidget;
+
+    return {};
+  }
+
+  void callMethod(Context &context, std::string_view name, MethodCallArgs args,
+                  std::move_only_function<void(MethodCallResult)>
+                      responseHandler) override {
+    if (name == "view/show") {
+      auto id = args["id"].get<std::string>();
+
+      if (id == "main") {
+        mainWidget->show();
+        mainWidget->setFocus();
+        responseHandler({});
+        return;
+      }
+
+      if (id == "package-sources") {
+        showPackageSourcesDialog(context, args["params"],
+                                 std::move(responseHandler));
+        return;
+      }
+
+      if (id == "packages") {
+        showPackagesDialog(context, args["params"], std::move(responseHandler));
+        return;
+      }
+
+      if (id == "alternative-resolver") {
+        showAlternativeResolverDialog(context, args["params"],
+                                      std::move(responseHandler));
+        return;
+      }
+
+      if (id == "devices") {
+        // FIXME: implement
+        responseHandler({});
+        return;
+      }
+
+      responseHandler({{"error", elp::ErrorCode::InvalidParam}});
+      return;
     }
 
-    dialog->exec();
-    return {};
+    if (name == "view/hide") {
+      auto id = args["id"].get<std::string>();
+      if (id == "main") {
+        mainWidget->hide();
+      }
+      responseHandler({});
+      return;
+    }
+
+    responseHandler({{"error", elp::ErrorCode::MethodNotFound}});
   }
 };
 
@@ -811,16 +835,6 @@ struct BuiltinMethodHandler : Alternative {
       std::string name,
       std::move_only_function<MethodCallResult(MethodCallArgs)> handler) {
     methodHandlers[std::move(name)] = std::move(handler);
-  }
-
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args,
-                           MethodCallResult *response) override {
-    return {};
-  }
-
-  std::error_code deactivate(Context &context, std::string_view role) override {
-    return {};
   }
 
   static std::shared_ptr<BuiltinMethodHandler> instance() {
@@ -866,15 +880,6 @@ struct BuiltinMethods final : Alternative {
       std::string name,
       std::move_only_function<MethodCallResult(MethodCallArgs)> handler) {
     methods[std::move(name)] = std::move(handler);
-  }
-
-  std::error_code activate(Context &context, std::string_view role,
-                           MethodCallArgs args,
-                           MethodCallResult *response) override {
-    return {};
-  }
-  std::error_code deactivate(Context &context, std::string_view role) override {
-    return {};
   }
 };
 
@@ -961,12 +966,7 @@ int main(int argc, char *argv[]) {
           },
   }));
 
-  context.addAlternative(std::make_shared<MainWidget>(context));
-  context.addAlternative(std::make_shared<DevicesWidget>(context));
-  context.addAlternative(std::make_shared<PackageSourcesDialog>(context));
-  context.addAlternative(std::make_shared<PackagesWidget>(context));
-  context.addAlternative(std::make_shared<AlternativeResolverDialog>(context));
-  context.addAlternative(std::make_shared<ShowErrorDialog>(context));
+  context.addAlternative(std::make_shared<BuiltinAlternatives>(context));
 
   {
     auto appConfigLocation = QStandardPaths::writableLocation(
